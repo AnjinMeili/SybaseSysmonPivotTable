@@ -1,0 +1,335 @@
+#!/usr/bin/ksh
+cd /foo/apache/docs/sccsd2-2
+rm -rf ods
+mkdir ods
+mkdir ods/DataCache
+mkdir ods/DiskIO
+mkdir ods/Replication
+cd sybase
+
+#
+# For each sb_sysmon file, rotate the device entries to a comma delimited line on time.
+echo "Reading ODS sb_sysmon data..."
+for file in ODS*
+do
+	echo "   $file"
+	gawk '{
+		#
+		# Reset variables and setup for the next file.
+		#
+		if( FILENAME != filename ) {
+			filename = FILENAME ;
+			reads = 0 ; writes = 0 ; fcnt = fcnt + 1 ; lcnt = 0 ; flag = 0 ;
+			split( FILENAME, tary, "." ) ; split( tary[2], ttary, "_" ) ;
+			date = sprintf("%s/%s",substr(ttary[1],5,2),substr(ttary[1],7,2)) ;
+			time = sprintf("%s:%s",substr(ttary[2],1,2),substr(ttary[2],3,2)) ;
+			rc = 0 ; rp = 0 ; rs = 0 ; rx = 0 ; wc = 0 ; wp = 0 ; ws = 0 ; wx = 0 ;
+			tc = 0 ; ts = 0 ; tx = 0 ; swc = 0 ; swp = 0 ; sws = 0 ; swx = 0 ;
+			SGC = 0 ; SGP = 0 ; SGS = 0 ; SGX = 0 ;
+			}
+
+		##
+		## Kernel Utilization
+		##
+		if( $1 == "Kernel" && $2 == "Utilization" ){
+			flag = "kernel" ;
+			outfile = "../ods/kernel_utilization.txt" ;
+			}
+		if( flag == "kernel" && $2 == "Busy" ) {
+			getline ; getline ;
+			for( i=1 ; i<=6 ; i++ ) {
+				eidx[i] = $2 ;
+				ecpu[$2] = $3 ; eio[$2] = $5 ; eidle[$2] = $7 ; getline ;
+				}
+			getline ;
+			esum_cpu = $3 ; esum_io = $5 ; esum_idle = $7 ; getline
+			eavg_cpu = $2 ; eavg_io = $4 ; eavg_idle = $6 ;
+			}
+		if( flag == "kernel" && $1 == "CPU" ) {
+			getline ; getline ;
+			for( i=1 ; i<=6 ; i++ ) {
+				yidx[i] = $2 ;
+				ysec[$2] = $3 ; yxact[$2] = $4 ; ycnt[$2] = $5 ; yper[$2] = $6 ; getline ;
+				}
+			getline ;
+			yt_sec = $4 ; yt_xact = $5 ; yt_cnt = $6 ;
+			}
+		if( flag == "kernel" && $1 == "Network" ) {
+			getline ;
+			nnb_sec = $2 ; nnb_xact = $3 ; nnb_cnt = $4 ; nnb_per = $5 ;
+			getline ;
+			nb_sec = $2 ; nb_xact = $3 ; nb_cnt = $4 ; nb_per = $5 ;
+			getline ; getline ;
+			tnc_sec = $5 ; tnc_xact = $6 ; tnc_cnt = $7 ; getline ;
+			anc_cnt = $8 ;
+			}
+		if( flag == "kernel" && $1 == "Disk" ) {
+			getline ;
+			tdc_sec = $5 ; tdc_xact = $6 ; tdc_cnt = $7 ; getline ;  
+			crio_sec = $4 ; crio_xact = $5 ; crio_cnt = $6 ; crio_per = $7 ; getline ;
+			adio_cnt = $7 ;
+			printf "\"%s %s\",",date,time >> outfile ; 
+			for( i=1 ; i<=6 ; i++ ) {
+				printf "%.1f,%.1f,%.1f,",ecpu[eidx[i]],eio[eidx[i]],eidle[eidx[i]] >> outfile ;
+				}
+			printf "%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,",esum_cpu,esum_io,esum_idle,eavg_cpu,eavg_io,eavg_idle >> outfile ;
+			for( i=1; i<=6 ; i++ ) { 
+				printf "%.1f,%.1f,%.1f,%.1f,",ysec[yidx[i]],yxact[yidx[i]],ycnt[yidx[i]],yper[yidx[i]] >> outfile ;
+				}
+			printf "%.1f,%.1f,%.1f,",yt_sec,yt_xact,yt_cnt >> outfile ;
+			printf "%.1f,%.1f,%.1f,%.1f,",nnb_sec,nnb_xact,nnb_cnt,nnb_per >> outfile ;
+			printf "%.1f,%.1f,%.1f,%.1f,",nb_sec,nb_xact,nb_cnt,nb_per >> outfile ;
+			printf "%.1f,%.1f,%.1f,%f,",tnc_sec,tnc_xact,tnc_cnt,anc_cnt >> outfile ;
+			printf "%.1f,%.1f,%.1f,",tdc_sec,tdc_xact,tdc_cnt >> outfile ;
+			printf "%.1f,%.1f,%.1f,%.1f,",crio_sec,crio_xact,crio_cnt,crio_per >> outfile ;
+			printf "%f\n",adio_cnt >> outfile ;
+			close(outfile) ; flag = 0 ;
+			}
+
+
+		##
+		## Task Management
+		##
+		if( $1 == "Task" && $2 == "Management" ) {
+			flag = "task" ;
+			outfile = "../ods/task_management.txt" ;
+			}
+		if( flag == "task" && $1 == "Connections" ) {
+			tm_cs = $3 ; tm_cx = $4 ; tm_cnt = $5 ; 
+			}
+		if( flag == "task" && $2 == "Context" && $5 == "Engine" ) {
+			getline ;
+			for( i=1 ; i<=6 ; i++ ) {
+				tmcs_s[i] = $3 ; tmcs_x[i] = $4 ; tmcs_c[i] = $5 ; tmcs_p[i] = $6 ; getline ;
+				}
+			getline ;
+			tmcs_ts = $4 ; tmcs_tx = $5 ; tmcs_tc = $6 ;
+			}
+		if( flag == "task" && $4 == "Due" ) {
+			for( i=1; i<=16; i++) {
+				getline ;
+				tmpS = NF - 4 ; tmpX = NF - 3 ; tmpC = NF - 2 ; tmpP = NF - 1 ;
+				tmcs_due[i,1] = $tmpS ; tmcs_due[i,2] = $tmpX ; 
+				tmcs_due[i,3] = $tmpC ; tmcs_due[i,4] = $tmpP ;
+				}
+			printf "%s %s,%s,%s,%s,",date,time,tm_cs,tm_cx,tm_cnt >> outfile ;
+			for( i=1 ; i<=6 ; i++) {
+				printf "%s,%s,%s,%s,",tmcs_s[i],tmcs_x[i],tmcs_c[i],tmcs_p[i] >> outfile ;
+				}
+			printf "%s,%s,%s,",tmcs_ts,tmcs_tx,tmcs_tc >> outfile ;
+			for( i=1; i<=16; i++ ) {
+				printf "%s,%s,%s,%s,",tmcs_due[i,1],tmcs_due[i,2],tmcs_due[i,3],tmcs_due[i,4] >> outfile ;
+				}
+			printf "\n" >> outfile ;
+			flag = "" ; close( outfile ) ;
+			}
+
+
+		##
+		## Transaction Profile
+		##
+		if( $1 == "Transaction" && $2 == "Profile" ) {
+			flag = "trans" ;
+			outfile = "../ods/transaction_profile.txt" ;
+			printf "%s %s,",date,time >> outfile ;
+			getline ; getline ; getline ; getline ; getline ;
+			printf "%s,%s,",$3,$5 >> outfile ;
+			getline ; getline ; getline ; getline ; getline ;
+			for( i=1; i<=3; i++ ) {
+				printf "%s,%s,%s,%s,",$(NF-4),$(NF-3),$(NF-2),$(NF-1) >> outfile ;
+				getline ; 
+				}
+			getline ;
+			printf "%s,%s,%s,%s,",$4,$5,$6,$7 >> outfile ;
+			getline ; getline ; getline ;
+			for( i=1; i<=6; i++ ) {
+				printf "%s,%s,%s,%s,",$(NF-4),$(NF-3),$(NF-2),$(NF-1) >> outfile ;
+				getline ; 
+				}
+			getline ;
+			printf "%s,%s,%s,%s,",$4,$5,$6,$7 >> outfile ;
+			getline ; getline ; getline ;
+			for( i=1; i<=6; i++ ) {
+				printf "%s,%s,%s,%s,",$(NF-4),$(NF-3),$(NF-2),$(NF-1) >> outfile ;
+				getline ; 
+				}
+			getline ;
+			printf "%s,%s,%s,%s,",$5,$6,$7,$8 >> outfile ;
+			getline ; getline ; getline ;
+			for( i=1; i<=3; i++ ) {
+				printf "%s,%s,%s,%s,",$(NF-4),$(NF-3),$(NF-2),$(NF-1) >> outfile ;
+				getline ; 
+				}
+			getline ;
+			printf "%s,%s,%s,%s,",$4,$5,$6,$7 >> outfile ;
+			getline ; getline ; 
+			printf "%s,%s,%s\n",$4,$5,$6 >> outfile ;
+			flag = "" ; close(outfile) ;
+			}
+	
+
+		##
+		## Transaction Management
+		##
+		if( $1 == "Transaction" && $2 == "Management" ) {
+			flag = "transman" ;
+			outfile = "../ods/transaction_management.txt" ;
+			printf "%s %s,",date,time >> outfile ;
+			getline ; getline ; getline ; getline ; getline ;
+			for( i=1; i<=6; i++ ) {
+				printf "%s,%s,%s,%s,",$(NF-4),$(NF-3),$(NF-2),$(NF-1) >> outfile ;
+				getline ; 
+				}
+			getline ;
+			printf "%s,%s,%s,",$4,$5,$6 >> outfile ;
+			getline ; getline ; 
+			printf "%s,%s,%s,",$4,$5,$6 >> outfile ; getline ;
+			printf "%s,",$8 >> outfile ;
+			getline ; getline ; getline ;
+			printf "%s,%s,%s,%s,",$2,$3,$4,$5 >> outfile ; getline ;
+			printf "%s,%s,%s,%s,",$2,$3,$4,$5 >> outfile ; getline ; getline ;
+			printf "%s,%s,%s,",$5,$6,$7 >> outfile ; 
+			getline ; getline ; getline ;
+			printf "%s,%s,%s,%s,",$2,$3,$4,$5 >> outfile ; getline ;
+			printf "%s,%s,%s,%s,",$2,$3,$4,$5 >> outfile ; getline ; getline ;
+			printf "%s,%s,%s,",$5,$6,$7 >> outfile ;
+			getline ; getline ;
+			printf "%s,%s,%s,",$4,$5,$6 >> outfile ; getline ;
+			printf "%s,%s,%s,",$4,$5,$6 >> outfile ; getline ;
+			printf "%s\n",$9 >> outfile ;
+			flag = "" ; close(outfile) ;
+			}
+
+		##
+		## Disk I/O Summary
+		##
+		if( $1 == "Disk" && $3 == "Management" ) {
+			flag = "diskio" ;
+			outfile = "../ods/diskio_management.txt" ;
+			getline ; getline ; getline ; getline ; getline ;
+			printf "%s %s,",date,time >> outfile ;
+			for( i=1; i<=7; i++ ) {
+				printf "%s,",$(NF-1) >> outfile ;
+				getline ;
+				}
+			getline ; getline ; getline ;
+			for( i=1; i<=4; i++ ) {
+				printf "%s,",$(NF-1) >> outfile ;
+				getline ;
+				}
+			getline ; getline ;
+			printf "%s,%s,%s,",$5,$6,$7 >> outfile ;
+			getline ; getline ; getline ;
+			for( i=1 ; i<=6; i++ ) {
+				printf "%s,%s,%s,%s,",$3,$4,$5,$6 >> outfile  ;
+				getline ;
+				}
+			getline ; 
+			printf "%s,%s,%s\n",$4,$5,$6 >> outfile ;
+			flag = "" ; close(outfile );
+			}
+
+		##
+		## Device Statistics
+		##
+		if( $1 == "Device:" ) {
+			getline ; split($1,tary,"/"); vg = tary[3] ; lv = substr(tary[4],2) ;
+			syscmd = sprintf("../makedir ../ods/DiskIO/%s",vg) ;
+			system(syscmd) ; close(syscmd) ;
+			outfile = sprintf("../ods/DiskIO/%s/%s.txt",vg,lv) ;
+			flag = "device" ;
+			}
+		if( flag == "device" && $1 == "APF" ) {
+			rc = $4 ; rp = $5 ; rs = $2 ; rx = $3 ; getline ;
+			rc = rc + $4 ; rp = rp + $5 ; rs = rs + $2 ; rx = rx + $3 ; 	
+			}
+		if( flag == "device" && $1 == "Writes" ) {
+			wc = $4 ;  wp = $5 ; ws = $2 ; wx = $3 ;
+			}
+		if( flag == "device" && $1 == "Total" ) { 
+			tc = $5 ; ts = $3 ; tx = $4 ;
+			}	
+		if( flag == "device" && $3 == "Granted" ) {
+			SGC = $6 ; SGS = $4 ; SGX = $5 ; SGP = $7 ; getline ;
+			swc = $6 ; sws = $4 ; swx = $5 ; swp = $7 ;
+			}
+		if( flag == "device" && $1 == "-----------------------------------------------------------------------------" ) {
+			printf "\"%s %s\",",date,time >> outfile ;
+			printf "%.1f,%.1f,%.1f,%.1f,",rc,rs,rx,rp >> outfile ;
+			printf "%.1f,%.1f,%.1f,%.1f,",wc,ws,wx,wp >> outfile ;
+			printf "%.1f,%.1f,%.1f,",tc,ts,tx >> outfile ;
+			printf "%.1f,%.1f,%.1f,%.1f,",SGC,SGS,SGX,SGP >> outfile ;
+			printf "%.1f,%.1f,%.1f,%.1f\n",swc,sws,swx,swp >> outfile ;
+			close( outfile ) ; 
+			flag = 0 ;
+			rc = 0 ; rp = 0 ; rs = 0 ; rx = 0 ;
+			wc = 0 ; wp = 0 ; ws = 0 ; wx = 0 ;
+			tc = 0 ; ts = 0 ; tx = 0 ;
+			swc = 0 ; swp = 0 ; sws = 0 ; swx = 0 ;
+			SGC = 0 ; SGP = 0 ; SGS = 0 ; SGX = 0 ;
+			}
+		}' $file
+done
+
+#
+# Now we go back thru the reports we just made and give them a header line.
+cd ../ods
+
+#
+# Kernel Utilization
+echo ",Engine Busy Utilization Percentage,,,,,,,,,,,,,,,,,,,,,,,,CPU Yeilds By Engine,,,,,,,,,,,,,,,,,,,,,,,,,,,Network Checks,,,,,,,,,,,,Disk I/O Checks,,,,,,," > /tmp/sysmon_temp
+echo ",Engine 0,,,Engine 1,,,Engine 2,,,Engine 3,,,Engine 4,,,Engine 5 ,,,Summary,,,Average,,,Engine 0,,,,Engine 1,,,,Engine 2,,,,Engine 3,,,,Engine 4,,,,Engine 5,,,,Total CPU Yeilds,,,Non-Blocking,,,,Blocking,,,,Total Network Checks,,,Avg Net I/O,Total Checks,,,Checks Returning I/O,,,,Avg Disk" >> /tmp/sysmon_temp
+echo "Date Time,CPU,I/O,Idle,CPU,I/O,Idle,CPU,I/O,Idle,CPU,I/O,Idle,CPU,I/O,Idle,CPU,I/O,Idle,CPU,I/O,Idle,CPU,I/O,Idle,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,% of Total,per Sec,per Xact,Count,Per Check,per Sec,per Xact,Count,per Sec,per Xact,Count,% of Total,I/O Rtrn" >> /tmp/sysmon_temp
+cat kernel_utilization.txt >> /tmp/sysmon_temp
+cp /tmp/sysmon_temp kernel_utilization.txt
+
+#
+# Task Management
+rm /tmp/sysmon_temp
+echo ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Task Context Switches Due To:,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,," > /tmp/sysmon_temp
+echo ",Connections Opened,Engine 0 ,,Engine 0 ,,,,Engine 1,,,,Engine 2,,,,Engine 3,,,,Engine 4,,,,Engine 5,,,,Total Task Switches,,,Voluntary Yields,,,,Cache Search Misses,,,,System Disk Writes,,,,I/O Pacing,,,,Logical Lock Contention,,,,Address Lock Contention,,,,Latch Contention,,,,Log Semaphore Contention,,,,PLC Lock Contention,,,,Group Commit Sleeps,,,,Last Log Page Writes,,,,Modify Conflicts,,,,I/O Device Contention,,,,Network Packet Received,,,,Network Packet Sent,,,,Other Causes,,," >> /tmp/sysmon_temp
+echo "Date,per Sec,per Xact,Count,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%" >> /tmp/sysmon_temp 
+cat task_management.txt >> /tmp/sysmon_temp
+cp /tmp/sysmon_temp task_management.txt
+
+#
+# Transaction Profile
+rm /tmp/sysmon_temp
+echo ",Trans Sum,,Transaction Detail - Inserts,,,,,,,,,,,,,,,,Transaction Detail - Updates,,,,,,,,,,,,,,,,,,,,,,,,,,,,Transaction Detail - Data Only Locked Updates,,,,,,,,,,,,,,,,,,,,,,,,,,,,Transaction Detail - Deletes,,,,,,,,,,,,,,,,,," > /tmp/sysmon_temp
+echo ",Committed Xacts,,APL Heap Table,,,,APL Clustered Table,,,,Data Only Lock Table,,,,Total Rows Inserted,,,,APL Deferred,,,,APL Direct In-place,,,,APL Direct Cheap,,,,APL Direct Expensive,,,,DOL Deferred,,,,DOL Direct,,,,Total Rows Updated,,,,DOL Replace,,,,DOL Shrink,,,,DOL Cheap Expand,,,,DOL Expensive Expand,,,,DOL Expand & Forward,,,,DOL Fwd Row Returned,,,,Total DOL Rows Updated,,,,APL Deferred,,,,APL Direct,,,,DOL,,,,Total Rows Deleted,,,,Total Rows Affected,," >> /tmp/sysmon_temp
+echo "Date,per Sec,Count,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count" >> /tmp/sysmon_temp
+cat transaction_profile.txt >> /tmp/sysmon_temp
+cp /tmp/sysmon_temp transaction_profile.txt
+
+#
+# Transaction Management
+rm /tmp/sysmon_temp
+echo ",ULC Flushes to Xact Log,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,ULC Semaphore Requests,,,,,,,,,,,Log Semaphore Requests,,,,,,,,,,,,,,,,," > /tmp/sysmon_temp
+echo ",by Full ULC,,,,by End Transaction,,,,by Change of Database,,,,by Single Log Record,,,,by Unpin,,,,by Other,,,,Total ULC Flushes,,,ULC Log Records,,,Max ULC,Granted,,,,Waited,,,,Total ULC Semaphore Req,,,Granted,,,,Waited,,,,Total Log Semaphore Req,,,Transaction Log Writes,,,Transaction Log Alloc,,,Avg Write" >> /tmp/sysmon_temp
+echo "Date,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,per Sec,per Xact,Count,Size,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,per Sec,per Xact,Count,per Sec,per Xact,Count,per Log" >> /tmp/sysmon_temp
+cat transaction_management.txt >> /tmp/sysmon_temp
+cp /tmp/sysmon_temp transaction_management.txt
+
+#
+# Disk I/O Management Summary
+rm /tmp/sysmon_temp
+echo ",Max Outstanding I/O,,,,,,,I/Os Delayed by,,,,Total Requested Disk I/Os,,,Completed Disk I/Os,,,,,,,,,,,,,,,,,,,,,,,,,," > /tmp/sysmon_temp
+echo ",,Engine,,,,,,,,,,,,,Engine 0,,,,Engine 1,,,,Engine 2,,,,Engine 3,,,,Engine 4,,,,Engine 5,,,,Total Completed I/Os,," >> /tmp/sysmon_temp
+echo "Date,Server,0,1,2,3,4,5,Disk I/O,Server,Engine,OS,per Sec,per Xact,Count,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count,%,per Sec,per Xact,Count" >> /tmp/sysmon_temp
+cat diskio_management.txt >> /tmp/sysmon_temp
+cp /tmp/sysmon_temp diskio_management.txt
+
+
+#
+# By Device I/O Block
+cd DiskIO
+for file in `du -a | cut -f2`
+do
+        if [ -f $file ]
+        then
+                echo "Date,Reads,sec,xact,%,Writes,sec,xact,%,Total,sec,xact,SemaGet,sec,xact,%,SemaWait,sec,xact,%" > /tmp/get_devices.tmp
+                cat $file >> /tmp/get_devices.tmp
+                cp /tmp/get_devices.tmp $file
+        fi
+done
+

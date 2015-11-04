@@ -1,0 +1,10 @@
+The challenge here was to extract meaningful data from Sybase sp_sysmon
+reports.  I was also challenged to provide the output in Excel format.
+
+So this suite of tools will dump out the values I have interest in from 
+sp_sysmon, into CDL files.  These are imported with a VBA macro, and formatted.
+
+With this data, significant improvements to Sybase performance were easy
+to plan.
+
+
